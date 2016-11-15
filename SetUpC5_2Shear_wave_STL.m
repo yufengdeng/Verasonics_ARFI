@@ -155,7 +155,7 @@ elementAngleDegree = Trans.ElementPos(:,4)/pi*180;
 for ipush = 1:npush
     n = m+1+ipush;
     TX(n).waveform = 2;
-    TX(n).Origin = [Trans.radius*sind(pushAngleDegree(ipush)) 0.0 Trans.radius*cosd(pushAngleDegree(ipush))];
+    TX(n).Origin = [Trans.radius*sind(pushAngleDegree(ipush)) 0.0 Trans.radius*cosd(pushAngleDegree(ipush))-Trans.radius];
     TX(n).focus = round(push_focus/w);
     centerElement(ipush) = find(abs(pushAngleDegree(ipush)-elementAngleDegree)==min(abs(pushAngleDegree(ipush)-elementAngleDegree)),1);
     if centerElement(ipush) < onele_push/2
