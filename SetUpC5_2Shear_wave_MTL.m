@@ -1,17 +1,26 @@
 clear all
+global filedir
+scriptName='SETUPC5_2SHEAR_WAVE_MTL';
 
-scriptName='SETUPC5_2Shear_wave_MTL';
+% USER MUST EDIT THIS PATH
+filedir = '/edit/path/here';
 push_focus = 50; %mm
-push_Fnum = 2; % 
-pushCycle  = 800;
-ne = 50; % number of total track frames
-nrefs = 5; % number of reference frame before the push
+push_Fnum = 1.5; % 
+pushCycle  = 900;
+ne = 105;
+nrefs = 5;
+pushAngleDegree = 0;
 
 %% Define basic parameters
 m = 64; % Bmode lines
 bmode_focus = 50;
 bmode_Fnum = 2;
 
+getPower = 0; % DO NOT delete, used by save_swei_data %----------------------%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+saveChannelData = 0;
+saveIQData = 1;
+
+Resource.Parameters.connector = 1;
 Resource.Parameters.numTransmit = 128;  % number of transmit channels.
 Resource.Parameters.numRcvChannels = 128;  % number of receive channels.
 Resource.Parameters.speedOfSound = 1540;
@@ -23,8 +32,8 @@ Resource.Parameters.initializeOnly = 0;
 Trans.name = 'C5-2';
 Trans.units = 'wavelengths';
 Trans = computeTrans(Trans);  % C5-2 transducer is 'known' transducer so we can use computeTrans.
-Trans.maxHighVoltage = 75;  % set maximum high voltage limit for pulser supply.
-TPC(5).maxHighVoltage = 75;
+Trans.maxHighVoltage = 76;  % set maximum high voltage limit for pulser supply.
+TPC(5).maxHighVoltage = 76;
 radius = Trans.radius;
 w = Resource.Parameters.speedOfSound/Trans.frequency/1000; % wavelength in mm
 
@@ -38,7 +47,7 @@ P.numRays = m;  % no. of raylines to program
 P.startDepth = 0; % startDepth and endDepth in wavelength
 P.endDepth = 208;
 
-%% Specify PData structure array
+%% Specify PData structure array.
 PData(1).PDelta = [1.0, 0, 0.5];  % x, y and z pdeltas
 sizeRows = 10 + ceil((P.endDepth + radius - (radius * cos(scanangle/2)))/PData(1).PDelta(3));
 sizeCols = 10 + ceil(2*(P.endDepth + radius)*sin(scanangle/2)/PData(1).PDelta(1));
@@ -58,11 +67,13 @@ for j = 1:P.numRays
 end
 PData(1).Region = computeRegions(PData(1));
 
-PData(2).PDelta = [0.5, 0, 0.25];  % x, y and z pdeltas
+
+% Specify PData structure array.
+PData(2).PDelta = [0.2/w, 0, 0.5];  % x, y and z pdeltas
 sizeRows2 = 10 + ceil((P.endDepth + radius - (radius * cos(scanangle/4)))/PData(2).PDelta(3));
 sizeCols2 = 9 + ceil(2*(P.endDepth + radius)*sin(scanangle/4)/PData(2).PDelta(1));
 PData(2).Size = [sizeRows2,sizeCols2,1];     % size, origin and pdelta set region of interest.
-PData(2).Origin(1,1) = -floor(sizeCols2/2)*0.5; 
+PData(2).Origin(1,1) = -floor(sizeCols2/2)*0.2/w; 
 PData(2).Origin(1,2) = 0;
 PData(2).Origin(1,3) = ceil(radius * cos(-scanangle/4)) - radius - 5;
 
@@ -71,8 +82,7 @@ PData(2).Region = struct(...
 
 
 %% Specify resource buffers
-% RcvBuffer stores channel data. Buffer 1 stores Bmode data, buffer 2
-% stores SWEI data
+% RcvBuffer stores channel data. Buffer 1 stores Bmode data
 Resource.RcvBuffer(1).datatype = 'int16';
 Resource.RcvBuffer(1).rowsPerFrame = 2400*m; % max 4096 per axial line
 Resource.RcvBuffer(1).colsPerFrame = Resource.Parameters.numRcvChannels;
@@ -138,14 +148,14 @@ end
 
 lastBmodeTransmit = n;
 
-% Track TX's
+% Track
 n = m+1;
 TX(n).Origin = [0.0 0.0 0.0];
 TX(n).focus = 0.0;
 TX(n).Apod = ones(1,Resource.Parameters.numRcvChannels); %All channels
 TX(n).Delay = computeTXDelays(TX(n));
 
-% Push TX's
+% Push
 n = m+2;
 onele_push = round(((push_focus/push_Fnum)/(aperture_size*w)*Resource.Parameters.numRcvChannels)/4)*4;
 offele_push = Resource.Parameters.numRcvChannels-onele_push;
@@ -229,9 +239,9 @@ for i = 1:m
     ReconInfo(i).regionnum = i;
 end
 
-
+% - ReconInfo for SWEI.
 k = m; 
-ReconInfo((k+1):(k+ne)) = repmat(struct('mode', 3, ...
+ReconInfo((k+1):(k+ne)) = repmat(struct('mode', 3, ... % IQ output 
                    'txnum', m+1, ...
                    'rcvnum', lastBmodeReceive+1, ...
                    'regionnum', 1), 1, ne);
@@ -246,18 +256,32 @@ end
 %% Specify Process structure array.
 Process(1).classname = 'Image';
 Process(1).method = 'imageDisplay';
-Process(1).Parameters = {'imgbufnum',1, ... 
-                         'framenum',-1, ... 
-                         'pdatanum',1, ...  
-                         'norm',1, ...       
-                         'pgain',20.0, ...    
+Process(1).Parameters = {'imgbufnum',1, ...   % number of buffer to process.
+                         'framenum',-1, ...   % frame number in src buffer (-1 => lastFrame)
+                         'pdatanum',1, ...    % number of PData structure (defines output figure).
+                         'norm',1, ...        % normalization method(1 means fixed)
+                         'pgain',20.0, ...            % pgain is image processing gain
                          'persistMethod','none', ...
                          'persistLevel',0, ...
-                         'interp',1, ...
-                         'compression',0.5, ...
+                         'interp',1, ...      % method of interpolation (1=4pt interp)
+                         'compression',0.5, ...      % X^0.5 normalized to output word size
                          'mappingMode','full', ...
-                         'display',1, ...     
+                         'display',1, ...     % display image after processing
                          'displayWindow',1};
+                            
+Process(2).classname = 'External';
+Process(2).method = 'save_channel_data';
+Process(2).Parameters = {'srcbuffer','receive',...
+                         'srcbufnum',2,...
+                         'srcframenum',0,...
+                         'dstbuffer','none'};
+                     
+Process(3).classname = 'External';
+Process(3).method = 'save_IQ_data';
+Process(3).Parameters = {'srcbuffer','inter',...
+                         'srcbufnum',1,...
+                         'srcframenum',0,... %1
+                         'dstbuffer','none'};
                      
 
 %% Specify SeqControl structure arrays.
@@ -293,9 +317,10 @@ SeqControl(9).command = 'triggerOut';
 % - time between pushes
 SeqControl(10).command = 'timeToNextAcq';
 SeqControl(10).argument = 400;
-% - time between last SWEI tx and jump back 1st Bmode tx to include time
+% - time between last Bmode tx and jump back 1st Bmode tx to include time
 SeqControl(11).command = 'timeToNextAcq';
 SeqControl(11).argument = 500500;
+% - wait for transfer before marking processed
 % - Jump back to start.
 SeqControl(12).command = 'jump';
 SeqControl(12).argument = 1;
@@ -305,6 +330,9 @@ nsc = 13;
 
 % Specify Event structure arrays.
 n = 1;
+
+TTNAS=zeros(ne*3,1); %keep track of timing (TimeToNextAcq's)
+T_i=1;             %current index
 
 %% Start of Events
 Event(n).info = 'Switch to profile 1.';
@@ -375,7 +403,7 @@ Event(n).process = 0;
 Event(n).seqControl = 6;
 n = n+1;
 
-lastBmodeEvent = n;
+lastBmodeEvent = n
 
 % Start of ARFI Events!
 % Switch to TPC profile 5 (high power) and allow time for charging ext. cap.
@@ -395,6 +423,9 @@ Event(n).process = 0;
 Event(n).seqControl = 2;
 n = n+1;
 
+% SWEI loop
+%push 1 ensemble
+
 for j = 1:nrefs
     Event(n).info = 'Acquire reference data';
     Event(n).tx = m+1;
@@ -402,6 +433,11 @@ for j = 1:nrefs
     Event(n).recon = 0;      % no reconstruction.
     Event(n).process = 0;    % no processing
     Event(n).seqControl = 8;
+    if T_i == 1 %if this is the first one, add it to zero
+        TTNAS(T_i)=TTNAS(T_i)+SeqControl(Event(n).seqControl).argument; T_i=T_i+1;
+    else        %otherise add new time to previous sum
+        TTNAS(T_i)=TTNAS(T_i-1)+SeqControl(Event(n).seqControl).argument; T_i=T_i+1;
+    end
     n = n+1;
 end
 
@@ -410,7 +446,8 @@ Event(n).tx = m+2;
 Event(n).rcv = 0;
 Event(n).recon = 0;
 Event(n).process = 0;
-Event(n).seqControl = [9 10];
+Event(n).seqControl = 10;
+TTNAS(T_i)=TTNAS(T_i-1)+SeqControl(Event(n).seqControl).argument;
 n = n+1;
 
 for j = nrefs+1:ne
@@ -420,6 +457,11 @@ for j = nrefs+1:ne
     Event(n).recon = 0;      % no reconstruction.
     Event(n).process = 0;    % no processing
     Event(n).seqControl = 8;
+    if j == nrefs+1
+        TTNAS(T_i)=TTNAS(T_i)+SeqControl(Event(n).seqControl).argument; T_i=T_i+1;
+    else
+        TTNAS(T_i)=TTNAS(T_i-1)+SeqControl(Event(n).seqControl).argument; T_i=T_i+1;
+    end
     n = n+1;
 end
 
@@ -434,6 +476,17 @@ Event(n).seqControl = nsc;
 SeqControl(nsc).command = 'transferToHost'; % transfer frame to host buffer
 nsc = nsc+1;
 n = n+1;
+
+%         Event(n).info = 'Wait for transfer complete';
+%         Event(n).tx = 0;         % no transmit
+%         Event(n).rcv = 0;        % no rcv
+%         Event(n).recon = 0;      % reconstruction
+%         Event(n).process = 0;    % process
+%         Event(n).seqControl = nsc; % waitForTransferComplete
+%         SeqControl(nsc).command = 'waitForTransferComplete'; % transfer frame to host buffer
+%         SeqControl(nsc).argument = nsc-1;
+%         nsc = nsc+1;
+%         n = n+1;
 
 Event(n).info = 'recon';
 Event(n).tx = 0;         % no transmit
@@ -451,6 +504,24 @@ Event(n).process = 0;
 Event(n).seqControl = 2;
 n = n+1;
 
+% if saveChannelData
+%     Event(n).info = 'save channel data';
+%     Event(n).tx = 0;
+%     Event(n).rcv = 0;
+%     Event(n).recon = 0;
+%     Event(n).process = 2;
+%     Event(n).seqControl = 2;
+%     n = n+1;
+% end
+
+Event(n).info = 'save IQ data';
+Event(n).tx = 0;
+Event(n).rcv = 0;
+Event(n).recon = 0;
+Event(n).process = 3;
+Event(n).seqControl = 2;
+n = n+1;
+
 Event(n).info = 'Back to Matlab';
 Event(n).tx = 0;         % no transmit
 Event(n).rcv = 0;        % no rcv
@@ -459,13 +530,19 @@ Event(n).process = 0;    % no process
 Event(n).seqControl = 5; % Back to Matlab
 n = n+1;
 
-Event(n).info = 'Jump back to live B-mode';
+Event(n).info = 'Jump back to third event (stay at current power)';
 Event(n).tx = 0;        % no TX
 Event(n).rcv = 0;       % no Rcv
-Event(n).recon = 0;     
+Event(n).recon = 0;     % no Recon
 Event(n).process = 0;
 Event(n).seqControl = 12;
 n = n+1;
+
+% Motion filter timing. time zero at the first push
+T=(TTNAS(1:ne)-TTNAS(nrefs)-SeqControl(8).argument)/1000;
+i=find(T>4.0,1,'first');
+% i=length(T);
+T_idx = [1:nrefs i':length(T)];
 
 %% User specified UI Control Elements
 % - Sensitivity Cutoff
@@ -529,6 +606,10 @@ UI(4).Callback = {'wbdCallback.m',...
 
 clear i j n sensx sensy
 
+% Specify factor for converting sequenceRate to frameRate.
+frameRateFactor = 2;
+
 % Save all the structures to a .mat file.
 save(['./MatFiles/' scriptName]);
 display(['filename =''' scriptName ''';VSX'])
+% eval(['filename =''' scriptName ''';VSX'])
